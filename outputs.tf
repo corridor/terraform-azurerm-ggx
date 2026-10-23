@@ -14,7 +14,7 @@ output "jupyter_url" {
 }
 
 output "app_fqdn" {
-  description = "FQDN of the main application (includes app, worker, jupyter, nginx)"
+  description = "FQDN of the main application (unified API/UI and nginx)"
   value       = azurerm_container_app.app.latest_revision_fqdn
 }
 
@@ -47,14 +47,4 @@ output "database_connection_string" {
   description = "PostgreSQL connection string"
   value       = "postgresql://${var.db_admin_username}:${var.db_admin_password}@${azurerm_postgresql_flexible_server.main.fqdn}:5432/${var.db_name}"
   sensitive   = true
-}
-
-output "redis_hostname" {
-  description = "Azure Cache for Redis hostname"
-  value       = azurerm_redis_cache.main.hostname
-}
-
-output "redis_port" {
-  description = "Azure Cache for Redis non-SSL port"
-  value       = azurerm_redis_cache.main.port
 }

@@ -40,3 +40,10 @@ resource "azurerm_storage_share" "config" {
   storage_account_name  = azurerm_storage_account.main.name
   quota                = 1  # GB
 }
+
+# Shared kernel environments and specs must be visible to both API and worker.
+resource "azurerm_storage_share" "kernels" {
+  name                 = "kernels"
+  storage_account_name = azurerm_storage_account.main.name
+  quota                = 20
+}

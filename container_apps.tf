@@ -87,6 +87,15 @@ resource "azurerm_container_app_environment_storage" "config" {
   access_mode                  = "ReadWrite"
 }
 
+resource "azurerm_container_app_environment_storage" "kernels" {
+  name                         = "kernels"
+  container_app_environment_id = azurerm_container_app_environment.main.id
+  account_name                 = azurerm_storage_account.main.name
+  share_name                   = azurerm_storage_share.kernels.name
+  access_key                   = azurerm_storage_account.main.primary_access_key
+  access_mode                  = "ReadWrite"
+}
+
 # Main Application Container App
 resource "azurerm_container_app" "app" {
   name                         = "${replace(replace(var.resource_group_name, "-", ""), "_", "")}-app"
@@ -121,8 +130,8 @@ resource "azurerm_container_app" "app" {
     revision_suffix  = var.app_revision_suffix != "" ? var.app_revision_suffix : null  # Set to force new revision (restart); e.g. "restart-1" or timestamp()
 
     container {
-      name   = "corridor-app"
-      image  = "${var.acr_login_server}/${var.image_name}:${var.image_version}"
+      name  = "corridor-app"
+      image = "${var.acr_login_server}/${var.image_name}:${var.image_version}"
       # Single-app mode: give corridor-app the full Consumption budget minus nginx sidecar.
       cpu    = 1.75
       memory = "3.5Gi"
@@ -132,7 +141,7 @@ resource "azurerm_container_app" "app" {
         value = var.environment
       }
 
-      # Bind to all interfaces so nginx/worker in same replica can reach via localhost
+      # Bind to all interfaces so nginx in the same replica can reach via localhost
       env {
         name  = "CORRIDOR_APP_HOST"
         value = "0.0.0.0"
@@ -144,18 +153,8 @@ resource "azurerm_container_app" "app" {
       }
 
       env {
-        name  = "CORRIDOR_REDIS_HOST"
-        value = azurerm_redis_cache.main.hostname
-      }
-
-      env {
-        name  = "CORRIDOR_REDIS_PORT"
-        value = "6379"
-      }
-
-      env {
-        name  = "CORRIDOR_API_URL"
-        value = "https://${replace(replace(var.resource_group_name, "_", ""), "-", "")}-app.${azurerm_container_app_environment.main.default_domain}/corr-api"
+        name  = "CORRIDOR_KERNEL_WORKER_URL"
+        value = "https://${azurerm_container_app.worker.ingress[0].fqdn}"
       }
 
       env {
@@ -166,11 +165,6 @@ resource "azurerm_container_app" "app" {
       env {
         name  = "CORRIDOR_LICENSE_KEY"
         value = var.corridor_license_key
-      }
-
-      env {
-        name  = "CORRIDOR_CELERY_BROKER_URL"
-        value = "redis://:${urlencode(azurerm_redis_cache.main.primary_access_key)}@${azurerm_redis_cache.main.hostname}:6379/0"
       }
 
       env {
@@ -213,26 +207,41 @@ resource "azurerm_container_app" "app" {
       }
 
       volume_mounts {
+        name = "kernels"
+        path = "/opt/corridor/kernels"
+      }
+
+      volume_mounts {
         name = "config"
         path = "/opt/corridor/config"
+      }
+
+      # Allow cold starts to finish before liveness checks.
+      startup_probe {
+        transport               = "HTTP"
+        port                    = 5002
+        path                    = "/api"
+        interval_seconds        = 30
+        timeout                 = 5
+        failure_count_threshold = 10
       }
 
       # Liveness: if app stops responding on 5002, ACA restarts this container
       liveness_probe {
         transport             = "HTTP"
         port                  = 5002
-        path                  = "/corr-api"
+        path                  = "/api"
         initial_delay         = 60
         interval_seconds      = 30
         timeout               = 5
         failure_count_threshold = 3
       }
 
-      # Startup command (migration already done by init container)
+      # Start the unified API/UI after the migration init container succeeds.
       args = [
         "/bin/bash",
         "-c",
-        "cd /opt/corridor && source venv/bin/activate && exec venv/bin/corridor-app run"
+        "cd /opt/corridor && source venv/bin/activate && exec venv/bin/corridor-api run"
       ]
     }
     /*
@@ -252,7 +261,6 @@ resource "azurerm_container_app" "app" {
       # Nginx proxies to:
       # - / -> localhost:5002 (corridor-app)
       # - /jupyter -> localhost:5003 (corridor-jupyter)
-      # - /corr-api -> localhost:5002/corr-api (corridor-app)
       args = [
         "/bin/sh",
         "-c",
@@ -370,7 +378,6 @@ http {
     }
     location = /health { default_type text/plain; return 200 'ok'; }
     location /jupyter { proxy_pass http://jupyter; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto https; proxy_http_version 1.1; proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade"; }
-    location /corr-api { proxy_pass http://app; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto https; }
     location / { proxy_pass http://app; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto https; }
   }
 }
@@ -378,6 +385,14 @@ NGX
         exec nginx -g 'daemon off;'
         EOT
       ]
+    }
+
+    volume {
+      name         = "kernels"
+      storage_type = "AzureFile"
+      storage_name = azurerm_container_app_environment_storage.kernels.name
+      # Image runs as root; kernel environments require owner-only writes and symlinks.
+      mount_options = "uid=0,gid=0,dir_mode=0700,file_mode=0700,mfsymlinks"
     }
 
     volume {
@@ -423,21 +438,11 @@ NGX
     }
   }
 
-  tags = var.tags
-}
-
-# Azure Cache for Redis
-resource "azurerm_redis_cache" "main" {
-  name                = "${replace(replace(var.resource_group_name, "-", ""), "_", "")}-redis"
-  location            = azurerm_resource_group.main.location
-  resource_group_name = azurerm_resource_group.main.name
-  capacity            = 0
-  family              = "C"
-  sku_name            = var.redis_sku_name
-  enable_non_ssl_port = true
-  minimum_tls_version = "1.2"
-
-  redis_configuration {}
+  depends_on = [
+    azurerm_postgresql_flexible_server_database.main,
+    azurerm_postgresql_flexible_server_firewall_rule.allow_azure,
+    azurerm_postgresql_flexible_server_configuration.max_locks_per_transaction,
+  ]
 
   tags = var.tags
 }
@@ -460,11 +465,6 @@ resource "azurerm_container_app" "worker" {
     value = var.acr_sp_client_id != "" ? var.acr_sp_client_secret : var.acr_admin_password
   }
 
-  secret {
-    name  = "redis-password"
-    value = azurerm_redis_cache.main.primary_access_key
-  }
-
   dynamic "secret" {
     for_each = var.secret_environment_variables
     content {
@@ -484,28 +484,18 @@ resource "azurerm_container_app" "worker" {
       memory = "${var.worker_memory}Gi"
 
       env {
+        name  = "CORRIDOR_KERNEL_WORKER_HOST"
+        value = "0.0.0.0"
+      }
+
+      env {
         name  = "CORRIDOR_ENV"
         value = var.environment
       }
 
       env {
-        name  = "CORRIDOR_REDIS_HOST"
-        value = azurerm_redis_cache.main.hostname
-      }
-
-      env {
-        name  = "CORRIDOR_REDIS_PORT"
-        value = "6379"
-      }
-
-      env {
-        name  = "CORRIDOR_CELERY_BROKER_URL"
-        value = "redis://:${urlencode(azurerm_redis_cache.main.primary_access_key)}@${azurerm_redis_cache.main.hostname}:6379/0"
-      }
-
-      env {
         name  = "CORRIDOR_API_URL"
-        value = "https://${replace(replace(var.resource_group_name, "_", ""), "-", "")}-app.${azurerm_container_app_environment.main.default_domain}/corr-api"
+        value = "https://${replace(replace(var.resource_group_name, "_", ""), "-", "")}-app.${azurerm_container_app_environment.main.default_domain}/"
       }
 
       env {
@@ -551,11 +541,51 @@ resource "azurerm_container_app" "worker" {
         path = "/opt/corridor/uploads"
       }
 
+      volume_mounts {
+        name = "kernels"
+        path = "/opt/corridor/kernels"
+      }
+
+      volume_mounts {
+        name = "config"
+        path = "/opt/corridor/config"
+      }
+
+      volume_mounts {
+        name = "databases"
+        path = "/opt/corridor/databases"
+      }
+
+      readiness_probe {
+        transport = "TCP"
+        port      = 5001
+      }
+
       args = [
         "/bin/bash",
         "-c",
         "cd /opt/corridor && source venv/bin/activate && exec venv/bin/corridor-worker run"
       ]
+    }
+
+    volume {
+      name         = "kernels"
+      storage_type = "AzureFile"
+      storage_name = azurerm_container_app_environment_storage.kernels.name
+      # Image runs as root; kernel environments require owner-only writes and symlinks.
+      mount_options = "uid=0,gid=0,dir_mode=0700,file_mode=0700,mfsymlinks"
+    }
+
+    volume {
+      name         = "config"
+      storage_type = "AzureFile"
+      storage_name = azurerm_container_app_environment_storage.config.name
+    }
+
+    volume {
+      name         = "databases"
+      storage_type = "AzureFile"
+      storage_name = azurerm_container_app_environment_storage.databases.name
     }
 
     volume {
@@ -570,18 +600,18 @@ resource "azurerm_container_app" "worker" {
       storage_name = azurerm_container_app_environment_storage.uploads.name
     }
 
-    custom_scale_rule {
-      name             = "celery-queue"
-      custom_rule_type = "redis"
-      metadata = {
-        address    = "${azurerm_redis_cache.main.hostname}:6379"
-        listName   = "celery"
-        listLength = "1"
       }
-      authentication {
-        secret_name       = "redis-password"
-        trigger_parameter = "password"
-      }
+
+  # Keep the kernel server private to this Container Apps environment.
+  ingress {
+    external_enabled           = false
+    target_port                = 5001
+    transport                  = "http"
+    allow_insecure_connections = false
+
+    traffic_weight {
+      percentage      = 100
+      latest_revision = true
     }
   }
 

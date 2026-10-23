@@ -56,8 +56,6 @@ worker_cpu   = 2
 worker_memory = 8
 jupyter_cpu  = 2
 jupyter_memory = 8
-redis_cpu    = 0.5
-redis_memory = 1
 
 # Tags
 tags = {

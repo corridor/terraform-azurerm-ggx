@@ -46,7 +46,7 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 3.0"
+      version = "~> 4.25"
     }
   }
 }
@@ -60,7 +60,6 @@ module "ggx" {
   version = "~> 1.0"
 
   resource_group_name   = "my-genguardx-rg"
-  create_resource_group = false
   location              = "eastus2"
 
   # From Corridor support
