@@ -362,6 +362,10 @@ HTML
         cat > /etc/nginx/nginx.conf << 'NGX'
 events { worker_connections 1024; }
 http {
+  map $http_upgrade $connection_upgrade {
+    default upgrade;
+    '' close;
+  }
   upstream app { server 127.0.0.1:5002; }
   upstream jupyter { server 127.0.0.1:5003; }
   server {
@@ -378,7 +382,17 @@ http {
     }
     location = /health { default_type text/plain; return 200 'ok'; }
     location /jupyter { proxy_pass http://jupyter; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto https; proxy_http_version 1.1; proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade"; }
-    location / { proxy_pass http://app; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto https; proxy_http_version 1.1; proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade"; }
+    location / {
+      proxy_pass http://app;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection $connection_upgrade;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto https;
+      proxy_buffering off;
+    }
   }
 }
 NGX
