@@ -125,7 +125,7 @@ resource "azurerm_container_app" "app" {
   }
 
   template {
-    min_replicas     = 0  # Scale to zero when idle (app + worker scale together)
+    min_replicas     = 1  # Always on: the app runs the jobs and holds the kernel leases, so it must not scale to zero
     max_replicas     = 1
     revision_suffix  = var.app_revision_suffix != "" ? var.app_revision_suffix : null  # Set to force new revision (restart); e.g. "restart-1" or timestamp()
 
@@ -155,6 +155,13 @@ resource "azurerm_container_app" "app" {
       env {
         name  = "CORRIDOR_KERNEL_WORKER_URL"
         value = "https://${azurerm_container_app.worker.ingress[0].fqdn}"
+      }
+
+      # The API hands this to the kernels, which run in the worker app: the default (localhost:5002) is not the API there.
+      # Built from the name, like the worker's, because the app cannot reference its own FQDN.
+      env {
+        name  = "CORRIDOR_API_URL"
+        value = "https://${replace(replace(var.resource_group_name, "_", ""), "-", "")}-app.${azurerm_container_app_environment.main.default_domain}/"
       }
 
       env {
@@ -498,7 +505,7 @@ resource "azurerm_container_app" "worker" {
   }
 
   template {
-    min_replicas = 0
+    min_replicas = 1  # Always on: a scale-down drops the kernels of running jobs
     max_replicas = var.worker_max_replicas
 
     container {
