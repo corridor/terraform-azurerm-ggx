@@ -125,7 +125,7 @@ resource "azurerm_container_app" "app" {
   }
 
   template {
-    min_replicas     = 0  # Scale to zero when idle (app + worker scale together)
+    min_replicas     = 1  # Always on: the app runs the jobs and holds the kernel leases, so it must not scale to zero
     max_replicas     = 1
     revision_suffix  = var.app_revision_suffix != "" ? var.app_revision_suffix : null  # Set to force new revision (restart); e.g. "restart-1" or timestamp()
 
@@ -498,7 +498,7 @@ resource "azurerm_container_app" "worker" {
   }
 
   template {
-    min_replicas = 0
+    min_replicas = 1  # Always on: a scale-down drops the kernels of running jobs
     max_replicas = var.worker_max_replicas
 
     container {

@@ -1,6 +1,6 @@
 # Terraform Module: Corridor GenGuardX on Azure (Container Apps)
 
-Deploy Corridor GenGuardX (unified API/UI, kernel worker, PostgreSQL, Nginx) on **Azure Container Apps** with API scale-to-zero, a single always-on worker, Azure Files, and optional Dedicated workload profiles.
+Deploy Corridor GenGuardX (unified API/UI, kernel worker, PostgreSQL, Nginx) on **Azure Container Apps** with an always-on API and a single always-on worker, Azure Files, and optional Dedicated workload profiles.
 
 ## Quick Start
 
