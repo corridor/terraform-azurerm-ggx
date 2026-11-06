@@ -157,6 +157,13 @@ resource "azurerm_container_app" "app" {
         value = "https://${azurerm_container_app.worker.ingress[0].fqdn}"
       }
 
+      # The API hands this to the kernels, which run in the worker app: the default (localhost:5002) is not the API there.
+      # Built from the name, like the worker's, because the app cannot reference its own FQDN.
+      env {
+        name  = "CORRIDOR_API_URL"
+        value = "https://${replace(replace(var.resource_group_name, "_", ""), "-", "")}-app.${azurerm_container_app_environment.main.default_domain}/"
+      }
+
       env {
         name  = "CORRIDOR_SQLALCHEMY_DATABASE_URI"
         value = var.database_connection_string != "" ? var.database_connection_string : "postgresql://${var.db_admin_username}:${urlencode(var.db_admin_password)}@${azurerm_postgresql_flexible_server.main.fqdn}:5432/${var.db_name}"
