@@ -96,6 +96,15 @@ resource "azurerm_container_app_environment_storage" "kernels" {
   access_mode                  = "ReadWrite"
 }
 
+resource "azurerm_container_app_environment_storage" "kernel_runtime" {
+  name                         = "kernel-runtime"
+  container_app_environment_id = azurerm_container_app_environment.main.id
+  account_name                 = azurerm_storage_account.kernel_runtime.name
+  share_name                   = azurerm_storage_share.kernel_runtime.name
+  access_key                   = azurerm_storage_account.kernel_runtime.primary_access_key
+  access_mode                  = "ReadWrite"
+}
+
 # Main Application Container App
 resource "azurerm_container_app" "app" {
   name                         = "${replace(replace(var.resource_group_name, "-", ""), "_", "")}-app"
@@ -421,7 +430,7 @@ NGX
     volume {
       name         = "kernels"
       storage_type = "AzureFile"
-      storage_name = azurerm_container_app_environment_storage.kernels.name
+      storage_name = azurerm_container_app_environment_storage.kernel_runtime.name
       # Image runs as root; kernel environments require owner-only writes and symlinks.
       mount_options = "uid=0,gid=0,dir_mode=0700,file_mode=0700,mfsymlinks"
     }
@@ -602,7 +611,7 @@ resource "azurerm_container_app" "worker" {
     volume {
       name         = "kernels"
       storage_type = "AzureFile"
-      storage_name = azurerm_container_app_environment_storage.kernels.name
+      storage_name = azurerm_container_app_environment_storage.kernel_runtime.name
       # Image runs as root; kernel environments require owner-only writes and symlinks.
       mount_options = "uid=0,gid=0,dir_mode=0700,file_mode=0700,mfsymlinks"
     }

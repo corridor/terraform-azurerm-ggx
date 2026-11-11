@@ -2,6 +2,8 @@
 
 Deploy Corridor GenGuardX (unified API/UI, kernel worker, PostgreSQL, Nginx) on **Azure Container Apps** with an always-on API and a single always-on worker, Azure Files, and optional Dedicated workload profiles.
 
+Kernel environments use a dedicated 100 GiB Premium Azure Files share mounted by the API and worker.
+
 ## Quick Start
 
 **New to this module?** See [QUICKSTART.md](QUICKSTART.md) for step-by-step instructions including:

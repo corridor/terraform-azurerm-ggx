@@ -47,3 +47,22 @@ resource "azurerm_storage_share" "kernels" {
   storage_account_name = azurerm_storage_account.main.name
   quota                = 20
 }
+
+# Kernel environments contain many small files; provision faster storage separately.
+resource "azurerm_storage_account" "kernel_runtime" {
+  name                     = "${substr(replace(replace(var.resource_group_name, "-", ""), "_", ""), 0, 17)}kernels"
+  resource_group_name      = azurerm_resource_group.main.name
+  location                 = azurerm_resource_group.main.location
+  account_tier             = "Premium"
+  account_replication_type = "LRS"
+  account_kind             = "FileStorage"
+
+  tags = var.tags
+}
+
+resource "azurerm_storage_share" "kernel_runtime" {
+  name                 = "kernels"
+  storage_account_name = azurerm_storage_account.kernel_runtime.name
+  quota                = 100
+  enabled_protocol     = "SMB"
+}
