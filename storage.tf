@@ -47,3 +47,22 @@ resource "azurerm_storage_share" "kernels" {
   storage_account_name = azurerm_storage_account.main.name
   quota                = 20
 }
+
+# Kernel environments contain many small files; provision faster storage separately.
+# Using Standard + Storage, the kernel venv did not complete even after 1hr
+resource "azurerm_storage_account" "kernel_runtime" {
+  name                     = "${replace(replace(var.resource_group_name, "-", ""), "_", "")}kernels"
+  resource_group_name      = azurerm_resource_group.main.name
+  location                 = azurerm_resource_group.main.location
+  account_tier             = "Premium"
+  account_replication_type = "LRS"
+  account_kind             = "FileStorage"
+
+  tags = var.tags
+}
+
+resource "azurerm_storage_share" "kernel_runtime" {
+  name                 = "kernels"
+  storage_account_name = azurerm_storage_account.kernel_runtime.name
+  quota                = 50
+}
